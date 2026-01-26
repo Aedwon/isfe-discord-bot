@@ -69,9 +69,35 @@ class Embeds(commands.Cog):
                 # Mark sent
                 await db.execute("UPDATE scheduled_embeds SET status = 'sent' WHERE identifier = %s", (row['identifier'],))
                 
+                # Log success
+                log_row = await db.fetchrow("SELECT embed_log_channel_id FROM guild_settings WHERE guild_id = %s", (channel.guild.id,))
+                if log_row and log_row['embed_log_channel_id']:
+                    log_channel = self.bot.get_channel(log_row['embed_log_channel_id'])
+                    if log_channel:
+                         embed = discord.Embed(title="✅ Scheduled Embed Sent", color=0x00FF00, timestamp=datetime.datetime.now(TZ_MANILA))
+                         embed.add_field(name="Identifier", value=row['identifier'])
+                         embed.add_field(name="Channel", value=channel.mention)
+                         embed.add_field(name="Scheduled By", value=f"<@{row['user_id']}>")
+                         await log_channel.send(embed=embed)
+
             except Exception as e:
                 logging.error(f"Failed to send scheduled embed {row['identifier']}: {e}")
                 await db.execute("UPDATE scheduled_embeds SET status = 'failed' WHERE identifier = %s", (row['identifier'],))
+                
+                # Log failure
+                try:
+                     # Need to fetch guild ID from channel if possible, or skip
+                    channel = self.bot.get_channel(row['channel_id']) or await self.bot.fetch_channel(row['channel_id'])
+                    if channel:
+                        log_row = await db.fetchrow("SELECT embed_log_channel_id FROM guild_settings WHERE guild_id = %s", (channel.guild.id,))
+                        if log_row and log_row['embed_log_channel_id']:
+                            log_channel = self.bot.get_channel(log_row['embed_log_channel_id'])
+                            if log_channel:
+                                embed = discord.Embed(title="❌ Scheduled Embed Failed", color=0xFF0000, timestamp=datetime.datetime.now(TZ_MANILA))
+                                embed.add_field(name="Identifier", value=row['identifier'])
+                                embed.add_field(name="Error", value=str(e))
+                                await log_channel.send(embed=embed)
+                except: pass
 
     @schedule_loop.before_loop
     async def before_loop(self):
@@ -136,6 +162,20 @@ class Embeds(commands.Cog):
             
         view = CancelScheduledEmbedView(rows, self, interaction.user)
         await interaction.response.send_message("Select embed to cancel:", view=view, ephemeral=True)
+
+    @app_commands.command(name="set_embed_log_channel", description="Set the channel where scheduled embed logs are sent.")
+    @app_commands.describe(channel="Channel for embed logs")
+    @app_commands.default_permissions(administrator=True)
+    async def set_embed_log_channel(self, interaction: discord.Interaction, channel: discord.TextChannel):
+        await interaction.response.defer(ephemeral=True)
+        try:
+            await db.execute(
+                "INSERT INTO guild_settings (guild_id, embed_log_channel_id) VALUES (%s, %s) ON DUPLICATE KEY UPDATE embed_log_channel_id = %s",
+                (interaction.guild.id, channel.id, channel.id)
+            )
+            await interaction.followup.send(f"✅ Scheduled embed logs will be sent to {channel.mention}.", ephemeral=True)
+        except Exception as e:
+            await interaction.followup.send(f"❌ Error saving setting: {e}", ephemeral=True)
 
     async def cancel_scheduled_embed_action(self, interaction, identifier):
         await db.execute("DELETE FROM scheduled_embeds WHERE identifier = %s", (identifier,))

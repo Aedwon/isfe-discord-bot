@@ -2,7 +2,8 @@ CREATE TABLE IF NOT EXISTS guild_settings (
     guild_id BIGINT PRIMARY KEY,
     log_channel_id BIGINT NULL,
     ticket_category_id BIGINT NULL,
-    ticket_transcript_channel_id BIGINT NULL
+    ticket_transcript_channel_id BIGINT NULL,
+    embed_log_channel_id BIGINT NULL
 );
 
 CREATE TABLE IF NOT EXISTS command_logs (
