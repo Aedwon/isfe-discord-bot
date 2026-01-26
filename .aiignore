@@ -1,0 +1,15 @@
+# Secrets
+.env
+
+# Dependencies & Build
+venv/
+env/
+.venv/
+__pycache__/
+node_modules/
+
+# Logs
+*.log
+
+# Git
+.git/
