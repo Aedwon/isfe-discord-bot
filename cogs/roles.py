@@ -154,18 +154,52 @@ class Roles(commands.Cog):
             
         try:
             role_id = int(custom_id.split(':')[1])
-            role = interaction.guild.get_role(role_id)
+            target_role = interaction.guild.get_role(role_id)
             
-            if not role:
+            if not target_role:
                 await interaction.response.send_message("❌ Role not found.", ephemeral=True)
                 return
+
+            # Check for mutually exclusive sets (Game Roles)
+            GAME_ROLES = {1464901284128751782, 1464901350130188436, 1464901497539133564}
+            
+            msg = ""
+            
+            # If the clicked role is one of the game roles
+            if role_id in GAME_ROLES:
+                 # Logic:
+                 # 1. If user has 'target_role', remove it (Toggle Off)
+                 # 2. If user has OTHER game role, remove it AND add target_role (Switch)
+                 # 3. If user has None, add target_role (Toggle On)
+                 
+                 # Optimization: Just remove ALL other game roles first, then handle toggle logic
+                 
+                roles_to_remove = []
+                for r in interaction.user.roles:
+                    if r.id in GAME_ROLES and r.id != role_id:
+                        roles_to_remove.append(r)
                 
-            if role in interaction.user.roles:
-                await interaction.user.remove_roles(role)
-                await interaction.response.send_message(f"❌ Removed {role.mention}", ephemeral=True)
+                if roles_to_remove:
+                    await interaction.user.remove_roles(*roles_to_remove)
+                    # msg += f"Removed {', '.join([r.mention for r in roles_to_remove])}. "
+
+                if target_role in interaction.user.roles:
+                    await interaction.user.remove_roles(target_role)
+                    msg = f"❌ Removed {target_role.mention}"
+                else:
+                    await interaction.user.add_roles(target_role)
+                    msg = f"✅ Switched to {target_role.mention}"
+                    
+                await interaction.response.send_message(msg, ephemeral=True)
+
             else:
-                await interaction.user.add_roles(role)
-                await interaction.response.send_message(f"✅ Added {role.mention}", ephemeral=True)
+                # Standard Toggle for non-exclusive roles
+                if target_role in interaction.user.roles:
+                    await interaction.user.remove_roles(target_role)
+                    await interaction.response.send_message(f"❌ Removed {target_role.mention}", ephemeral=True)
+                else:
+                    await interaction.user.add_roles(target_role)
+                    await interaction.response.send_message(f"✅ Added {target_role.mention}", ephemeral=True)
                 
         except discord.Forbidden:
             await interaction.response.send_message("❌ Bot missing permissions to manage roles.", ephemeral=True)
