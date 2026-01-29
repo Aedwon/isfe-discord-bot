@@ -75,6 +75,7 @@ CREATE TABLE IF NOT EXISTS player_registrations (
     id INT AUTO_INCREMENT PRIMARY KEY,
     discord_id BIGINT NOT NULL,
     team_id INT NOT NULL,
+    ign VARCHAR(50) NULL,
     registered_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (team_id) REFERENCES teams(id) ON DELETE CASCADE
 );

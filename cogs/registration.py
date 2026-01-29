@@ -2,82 +2,139 @@ import discord
 from discord.ext import commands
 from discord import app_commands
 from database.db import db
-from typing import Optional, Literal
+from typing import Literal
 
 # Hardcoded game titles
 GAMES = ["MLBB", "CODM"]
 
-class GameSelect(discord.ui.Select):
-    """Dropdown to select a game title."""
+
+class RegistrationPanel(discord.ui.View):
+    """Persistent registration panel with game buttons."""
     
-    def __init__(self, action: str):
-        self.action = action  # 'register' or 'unregister'
-        options = [discord.SelectOption(label=game, value=game) for game in GAMES]
-        super().__init__(placeholder="Select a game...", options=options)
+    def __init__(self):
+        super().__init__(timeout=None)
     
-    async def callback(self, interaction: discord.Interaction):
-        game = self.values[0]
+    @discord.ui.button(label="MLBB", style=discord.ButtonStyle.primary, custom_id="reg_mlbb", emoji="📱")
+    async def mlbb_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self.show_registration_modal(interaction, "MLBB")
+    
+    @discord.ui.button(label="CODM", style=discord.ButtonStyle.primary, custom_id="reg_codm", emoji="🎮")
+    async def codm_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self.show_registration_modal(interaction, "CODM")
+    
+    @discord.ui.button(label="Unregister", style=discord.ButtonStyle.danger, custom_id="reg_unregister", emoji="🚪")
+    async def unregister_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self.show_unregister_menu(interaction)
+    
+    @discord.ui.button(label="My Teams", style=discord.ButtonStyle.secondary, custom_id="reg_myteams", emoji="👤")
+    async def myteams_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self.show_my_teams(interaction)
+    
+    async def show_registration_modal(self, interaction: discord.Interaction, game: str):
+        """Show team selection and IGN input."""
+        teams = await db.fetchall(
+            "SELECT id, team_name FROM teams WHERE game_name = %s ORDER BY team_name",
+            (game,)
+        )
         
-        if self.action == "register":
-            # Fetch teams for this game
-            teams = await db.fetchall(
-                "SELECT id, team_name FROM teams WHERE game_name = %s ORDER BY team_name",
-                (game,)
+        if not teams:
+            await interaction.response.send_message(
+                f"❌ No teams available for **{game}**. Please contact an admin.",
+                ephemeral=True
             )
-            
-            if not teams:
-                await interaction.response.edit_message(
-                    content=f"❌ No teams available for **{game}**. Please contact an admin.",
-                    view=None
-                )
-                return
-            
-            # Show team selection
-            view = TeamSelectView(game, teams)
-            await interaction.response.edit_message(
-                content=f"**{game}** - Select your team:",
-                view=view
-            )
+            return
         
-        elif self.action == "unregister":
-            # Check if user is registered for this game
-            registration = await db.fetchrow(
-                """SELECT t.team_name FROM player_registrations pr
-                   JOIN teams t ON pr.team_id = t.id
-                   WHERE pr.discord_id = %s AND t.game_name = %s""",
-                (interaction.user.id, game)
+        # Create view with team dropdown
+        view = TeamSelectView(game, teams)
+        await interaction.response.send_message(
+            f"**{game} Registration**\nSelect your team and enter your IGN:",
+            view=view,
+            ephemeral=True
+        )
+    
+    async def show_unregister_menu(self, interaction: discord.Interaction):
+        """Show games user can unregister from."""
+        registrations = await db.fetchall(
+            """SELECT t.game_name, t.team_name FROM player_registrations pr
+               JOIN teams t ON pr.team_id = t.id
+               WHERE pr.discord_id = %s""",
+            (interaction.user.id,)
+        )
+        
+        if not registrations:
+            await interaction.response.send_message(
+                "❌ You're not registered for any team.",
+                ephemeral=True
             )
-            
-            if not registration:
-                await interaction.response.edit_message(
-                    content=f"❌ You're not registered for any team in **{game}**.",
-                    view=None
-                )
-                return
-            
-            # Remove registration
-            await db.execute(
-                """DELETE pr FROM player_registrations pr
-                   JOIN teams t ON pr.team_id = t.id
-                   WHERE pr.discord_id = %s AND t.game_name = %s""",
-                (interaction.user.id, game)
+            return
+        
+        view = UnregisterView(registrations)
+        await interaction.response.send_message(
+            "Select the game to unregister from:",
+            view=view,
+            ephemeral=True
+        )
+    
+    async def show_my_teams(self, interaction: discord.Interaction):
+        """Show user's current registrations."""
+        registrations = await db.fetchall(
+            """SELECT t.game_name, t.team_name, pr.ign FROM player_registrations pr
+               JOIN teams t ON pr.team_id = t.id
+               WHERE pr.discord_id = %s
+               ORDER BY t.game_name""",
+            (interaction.user.id,)
+        )
+        
+        if not registrations:
+            await interaction.response.send_message(
+                "❌ You're not registered for any team.",
+                ephemeral=True
             )
-            
-            await interaction.response.edit_message(
-                content=f"✅ You've been unregistered from **{registration['team_name']}** ({game}).",
-                view=None
-            )
+            return
+        
+        lines = []
+        for r in registrations:
+            ign_display = f" — IGN: `{r['ign']}`" if r['ign'] else ""
+            lines.append(f"• **{r['game_name']}**: {r['team_name']}{ign_display}")
+        
+        embed = discord.Embed(
+            title="Your Team Registrations",
+            description="\n".join(lines),
+            color=discord.Color.blue()
+        )
+        await interaction.response.send_message(embed=embed, ephemeral=True)
 
 
-class GameSelectView(discord.ui.View):
-    """View containing the game dropdown."""
+class TeamSelectView(discord.ui.View):
+    """View with team dropdown and IGN button."""
     
-    def __init__(self, action: str):
-        super().__init__(timeout=60)
-        self.add_item(GameSelect(action))
+    def __init__(self, game: str, teams: list):
+        super().__init__(timeout=120)
+        self.game = game
+        self.teams = teams
+        self.selected_team_id = None
+        self.selected_team_name = None
+        
+        # Add team dropdown
+        self.team_select = TeamSelect(game, teams)
+        self.add_item(self.team_select)
     
-    async def on_timeout(self):
-        pass
+    @discord.ui.button(label="Enter IGN & Submit", style=discord.ButtonStyle.success, row=1)
+    async def submit_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if not self.team_select.selected_team_id:
+            await interaction.response.send_message(
+                "❌ Please select a team first.",
+                ephemeral=True
+            )
+            return
+        
+        # Show IGN modal
+        modal = IGNModal(
+            self.game, 
+            self.team_select.selected_team_id, 
+            self.team_select.selected_team_name
+        )
+        await interaction.response.send_modal(modal)
 
 
 class TeamSelect(discord.ui.Select):
@@ -85,28 +142,44 @@ class TeamSelect(discord.ui.Select):
     
     def __init__(self, game: str, teams: list):
         self.game = game
+        self.selected_team_id = None
+        self.selected_team_name = None
+        
         options = [
             discord.SelectOption(label=team["team_name"], value=str(team["id"]))
-            for team in teams[:25]  # Discord limit
+            for team in teams[:25]
         ]
         super().__init__(placeholder="Select your team...", options=options)
     
     async def callback(self, interaction: discord.Interaction):
-        team_id = int(self.values[0])
-        team_name = next(opt.label for opt in self.options if opt.value == self.values[0])
-        
-        # Check if already registered for this team
-        existing = await db.fetchrow(
-            "SELECT id FROM player_registrations WHERE discord_id = %s AND team_id = %s",
-            (interaction.user.id, team_id)
+        self.selected_team_id = int(self.values[0])
+        self.selected_team_name = next(opt.label for opt in self.options if opt.value == self.values[0])
+        await interaction.response.send_message(
+            f"✅ Selected: **{self.selected_team_name}**\nNow click **Enter IGN & Submit**.",
+            ephemeral=True
         )
+
+
+class IGNModal(discord.ui.Modal):
+    """Modal for entering IGN."""
+    
+    def __init__(self, game: str, team_id: int, team_name: str):
+        super().__init__(title=f"{game} Registration")
+        self.game = game
+        self.team_id = team_id
+        self.team_name = team_name
         
-        if existing:
-            await interaction.response.edit_message(
-                content=f"ℹ️ You're already registered for **{team_name}** ({self.game}).",
-                view=None
-            )
-            return
+        self.ign_input = discord.ui.TextInput(
+            label="Enter your In-Game Name (IGN)",
+            placeholder="e.g., ProPlayer123",
+            min_length=1,
+            max_length=50,
+            required=True
+        )
+        self.add_item(self.ign_input)
+    
+    async def on_submit(self, interaction: discord.Interaction):
+        ign = self.ign_input.value.strip()
         
         # Remove any existing registration for this game
         await db.execute(
@@ -116,27 +189,68 @@ class TeamSelect(discord.ui.Select):
             (interaction.user.id, self.game)
         )
         
-        # Add new registration
+        # Add new registration with IGN
         await db.execute(
-            "INSERT INTO player_registrations (discord_id, team_id) VALUES (%s, %s)",
-            (interaction.user.id, team_id)
+            "INSERT INTO player_registrations (discord_id, team_id, ign) VALUES (%s, %s, %s)",
+            (interaction.user.id, self.team_id, ign)
+        )
+        
+        # Change nickname
+        new_nickname = f"{self.game} | {ign}"
+        try:
+            await interaction.user.edit(nick=new_nickname)
+            nickname_msg = f"\n📝 Nickname changed to: **{new_nickname}**"
+        except discord.Forbidden:
+            nickname_msg = "\n⚠️ Could not change nickname (missing permissions or you're the server owner)."
+        except Exception as e:
+            nickname_msg = f"\n⚠️ Could not change nickname: {e}"
+        
+        await interaction.response.send_message(
+            f"✅ Registered to **{self.team_name}** ({self.game})!{nickname_msg}",
+            ephemeral=True
+        )
+
+
+class UnregisterSelect(discord.ui.Select):
+    """Dropdown to select which game to unregister from."""
+    
+    def __init__(self, registrations: list):
+        self.registrations = registrations
+        options = [
+            discord.SelectOption(
+                label=f"{r['game_name']}: {r['team_name']}", 
+                value=r['game_name']
+            )
+            for r in registrations
+        ]
+        super().__init__(placeholder="Select game to unregister from...", options=options)
+    
+    async def callback(self, interaction: discord.Interaction):
+        game = self.values[0]
+        
+        # Find the team name for the message
+        team_name = next(r['team_name'] for r in self.registrations if r['game_name'] == game)
+        
+        # Remove registration
+        await db.execute(
+            """DELETE pr FROM player_registrations pr
+               JOIN teams t ON pr.team_id = t.id
+               WHERE pr.discord_id = %s AND t.game_name = %s""",
+            (interaction.user.id, game)
         )
         
         await interaction.response.edit_message(
-            content=f"✅ You've been registered to **{team_name}** ({self.game})!",
+            content=f"✅ Unregistered from **{team_name}** ({game}).",
             view=None
         )
 
 
-class TeamSelectView(discord.ui.View):
-    """View containing the team dropdown."""
+class UnregisterView(discord.ui.View):
+    """View containing unregister dropdown."""
     
-    def __init__(self, game: str, teams: list):
+    def __init__(self, registrations: list):
         super().__init__(timeout=60)
-        self.add_item(TeamSelect(game, teams))
-    
-    async def on_timeout(self):
-        pass
+        self.add_item(UnregisterSelect(registrations))
 
 
 class Registration(commands.Cog):
@@ -145,25 +259,32 @@ class Registration(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
     
-    # =========== PLAYER COMMANDS ===========
+    async def cog_load(self):
+        """Register persistent view on cog load."""
+        self.bot.add_view(RegistrationPanel())
     
-    @app_commands.command(name="register", description="Register for a team")
-    async def register(self, interaction: discord.Interaction):
-        """Shows game selection dropdown, then team selection."""
-        view = GameSelectView(action="register")
-        await interaction.response.send_message("Select your game:", view=view, ephemeral=True)
+    # =========== ADMIN COMMANDS ===========
     
-    @app_commands.command(name="unregister", description="Leave your current team")
-    async def unregister(self, interaction: discord.Interaction):
-        """Shows game selection dropdown, then unregisters from that game."""
-        view = GameSelectView(action="unregister")
-        await interaction.response.send_message("Select the game to unregister from:", view=view, ephemeral=True)
+    @app_commands.command(name="regpanel", description="Send the registration panel")
+    @app_commands.checks.has_permissions(administrator=True)
+    async def regpanel(self, interaction: discord.Interaction):
+        """Send the persistent registration panel."""
+        embed = discord.Embed(
+            title="🎮 Player Registration",
+            description="Click a game button to register for your team.\n\n"
+                        "• **MLBB** / **CODM** — Register or update your team\n"
+                        "• **Unregister** — Leave your current team\n"
+                        "• **My Teams** — View your registrations",
+            color=discord.Color.gold()
+        )
+        await interaction.channel.send(embed=embed, view=RegistrationPanel())
+        await interaction.response.send_message("✅ Registration panel sent!", ephemeral=True)
     
     @app_commands.command(name="myteams", description="View your current team registrations")
     async def myteams(self, interaction: discord.Interaction):
         """Shows all games the user is registered for."""
         registrations = await db.fetchall(
-            """SELECT t.game_name, t.team_name FROM player_registrations pr
+            """SELECT t.game_name, t.team_name, pr.ign FROM player_registrations pr
                JOIN teams t ON pr.team_id = t.id
                WHERE pr.discord_id = %s
                ORDER BY t.game_name""",
@@ -176,7 +297,11 @@ class Registration(commands.Cog):
             )
             return
         
-        lines = [f"• **{r['game_name']}**: {r['team_name']}" for r in registrations]
+        lines = []
+        for r in registrations:
+            ign_display = f" — IGN: `{r['ign']}`" if r['ign'] else ""
+            lines.append(f"• **{r['game_name']}**: {r['team_name']}{ign_display}")
+        
         embed = discord.Embed(
             title="Your Team Registrations",
             description="\n".join(lines),
@@ -184,7 +309,7 @@ class Registration(commands.Cog):
         )
         await interaction.response.send_message(embed=embed, ephemeral=True)
     
-    # =========== ADMIN COMMANDS ===========
+    # =========== TEAM MANAGEMENT ===========
     
     teams_group = app_commands.Group(name="teams", description="Manage teams")
     
@@ -330,9 +455,9 @@ class Registration(commands.Cog):
         game: Literal["MLBB", "CODM"],
         team_name: str
     ):
-        """Show team roster without mentioning."""
+        """Show team roster with IGNs without mentioning."""
         players = await db.fetchall(
-            """SELECT pr.discord_id FROM player_registrations pr
+            """SELECT pr.discord_id, pr.ign FROM player_registrations pr
                JOIN teams t ON pr.team_id = t.id
                WHERE t.game_name = %s AND t.team_name = %s""",
             (game, team_name)
@@ -345,14 +470,14 @@ class Registration(commands.Cog):
             )
             return
         
-        # Use guild.get_member to get display names
         lines = []
         for p in players:
             member = interaction.guild.get_member(p["discord_id"])
+            ign_display = f" — `{p['ign']}`" if p["ign"] else ""
             if member:
-                lines.append(f"• {member.display_name}")
+                lines.append(f"• {member.display_name}{ign_display}")
             else:
-                lines.append(f"• <@{p['discord_id']}> (not in server)")
+                lines.append(f"• <@{p['discord_id']}> (not in server){ign_display}")
         
         embed = discord.Embed(
             title=f"{team_name} ({game})",
@@ -373,7 +498,6 @@ class Registration(commands.Cog):
         current: str
     ) -> list[app_commands.Choice[str]]:
         """Autocomplete for team names based on selected game."""
-        # Get the game from the interaction
         game = None
         for opt in interaction.data.get("options", []):
             if opt["name"] == "game":
@@ -393,7 +517,7 @@ class Registration(commands.Cog):
             for t in teams
             if current.lower() in t["team_name"].lower()
         ]
-        return choices[:25]  # Discord limit
+        return choices[:25]
 
 
 async def setup(bot: commands.Bot):
