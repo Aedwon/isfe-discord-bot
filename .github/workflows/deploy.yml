@@ -13,8 +13,8 @@ jobs:
       - name: Restart Pterodactyl Server
         run: |
           # Send power signal to restart the server
-          curl -X POST "${{ secrets.PTERODACTYL_URL }}/api/client/servers/${{ secrets.PTERODACTYL_SERVER_ID }}/power" \
-            -H "Authorization: Bearer ${{ secrets.PTERODACTYL_API_KEY }}" \
+          curl -X POST "${{ secrets.PANEL_URL }}/api/client/servers/${{ secrets.SERVER_ID }}/power" \
+            -H "Authorization: Bearer ${{ secrets.API_KEY }}" \
             -H "Content-Type: application/json" \
             -H "Accept: application/json" \
             -d '{"signal": "restart"}' \
