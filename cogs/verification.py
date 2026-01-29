@@ -646,7 +646,9 @@ class Verification(commands.Cog):
         for p in players:
             member = interaction.guild.get_member(p["discord_id"])
             ign = f" — `{p['ign']}`" if p["ign"] else ""
-            lines.append(f"• {member.display_name if member else f'<@{p[\"discord_id\"]}>'}{ign}")
+            discord_id = p["discord_id"]
+            display = member.display_name if member else f"<@{discord_id}>"
+            lines.append(f"• {display}{ign}")
         
         embed = discord.Embed(title=f"{team_name} ({game})", description="\n".join(lines[:25]), color=discord.Color.blue())
         embed.set_footer(text=f"{len(players)} player(s)")
