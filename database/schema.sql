@@ -63,3 +63,23 @@ CREATE TABLE IF NOT EXISTS autocreate_configs (
     voice_channel_id BIGINT PRIMARY KEY,
     category_id BIGINT
 );
+
+CREATE TABLE IF NOT EXISTS teams (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    game_name VARCHAR(20) NOT NULL,
+    team_name VARCHAR(100) NOT NULL,
+    UNIQUE KEY unique_team (game_name, team_name)
+);
+
+CREATE TABLE IF NOT EXISTS player_registrations (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    discord_id BIGINT NOT NULL,
+    team_id INT NOT NULL,
+    registered_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (team_id) REFERENCES teams(id) ON DELETE CASCADE
+);
+
+-- Index for faster lookups by discord_id
+CREATE INDEX IF NOT EXISTS idx_registrations_discord ON player_registrations(discord_id);
+
+-- Unique constraint: one player per game (enforced in application logic since we need to join tables)
