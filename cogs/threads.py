@@ -101,6 +101,21 @@ class Threads(commands.Cog):
             if len(errors) > 10: report += "\n..."
             
         await interaction.followup.send(report, ephemeral=True)
+        
+        # Send public message with thread links for easy navigation
+        if created_threads:
+            # Split into chunks if too many (Discord embed limit ~4096 chars)
+            chunk_size = 25
+            for i in range(0, len(created_threads), chunk_size):
+                chunk = created_threads[i:i+chunk_size]
+                embed = discord.Embed(
+                    title=f"🧵 {prefix} Threads" if i == 0 else f"🧵 {prefix} Threads (cont.)",
+                    description="\n".join(chunk),
+                    color=discord.Color.blue()
+                )
+                if i == 0:
+                    embed.set_footer(text=f"Created by {interaction.user.display_name}")
+                await interaction.channel.send(embed=embed)
 
 
 async def setup(bot):
