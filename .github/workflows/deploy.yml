@@ -1,0 +1,23 @@
+name: Deploy and Restart Server
+
+on:
+  push:
+    branches:
+      - main  # Change this if your default branch has a different name
+
+jobs:
+  restart-pterodactyl:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Restart Pterodactyl Server
+        run: |
+          # Send power signal to restart the server
+          curl -X POST "${{ secrets.PTERODACTYL_URL }}/api/client/servers/${{ secrets.PTERODACTYL_SERVER_ID }}/power" \
+            -H "Authorization: Bearer ${{ secrets.PTERODACTYL_API_KEY }}" \
+            -H "Content-Type: application/json" \
+            -H "Accept: application/json" \
+            -d '{"signal": "restart"}' \
+            --fail
+          
+          echo "✅ Server restart signal sent successfully!"
