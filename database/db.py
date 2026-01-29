@@ -38,12 +38,16 @@ class Database:
             logging.info("Database connection closed.")
 
     async def execute(self, query, params=None):
-        """Executes a modification query (INSERT, UPDATE, DELETE)."""
+        """Executes a modification query (INSERT, UPDATE, DELETE).
+        Returns lastrowid for INSERT, rowcount for UPDATE/DELETE."""
         if not self.pool:
             await self.connect()
         async with self.pool.acquire() as conn:
             async with conn.cursor() as cur:
                 await cur.execute(query, params)
+                # Return rowcount for DELETE/UPDATE, lastrowid for INSERT
+                if query.strip().upper().startswith(("DELETE", "UPDATE")):
+                    return cur.rowcount
                 return cur.lastrowid
 
     async def fetchrow(self, query, params=None):
