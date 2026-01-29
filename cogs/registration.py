@@ -308,6 +308,118 @@ class UnregisterView(discord.ui.View):
         self.add_item(UnregisterSelect(registrations))
 
 
+class TeamRemoveView(discord.ui.View):
+    """View for admins to select multiple teams to remove."""
+    
+    TEAMS_PER_PAGE = 25
+    
+    def __init__(self, game: str, teams: list, page: int = 0):
+        super().__init__(timeout=120)
+        self.game = game
+        self.all_teams = teams
+        self.page = page
+        self.max_pages = (len(teams) - 1) // self.TEAMS_PER_PAGE + 1
+        
+        # Get teams for current page
+        start = page * self.TEAMS_PER_PAGE
+        end = start + self.TEAMS_PER_PAGE
+        page_teams = teams[start:end]
+        
+        # Add multi-select dropdown
+        self.team_select = TeamRemoveSelect(game, page_teams)
+        self.add_item(self.team_select)
+        
+        # Add pagination if needed
+        if self.max_pages > 1:
+            self.add_item(RemovePrevButton(disabled=(page == 0)))
+            self.add_item(RemovePageIndicator(page + 1, self.max_pages))
+            self.add_item(RemoveNextButton(disabled=(page >= self.max_pages - 1)))
+    
+    @discord.ui.button(label="Remove Selected", style=discord.ButtonStyle.danger, row=2)
+    async def remove_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if not self.team_select.values:
+            await interaction.response.send_message("❌ No teams selected.", ephemeral=True)
+            return
+        
+        removed = []
+        for team_id in self.team_select.values:
+            result = await db.execute("DELETE FROM teams WHERE id = %s", (int(team_id),))
+            if result:
+                # Find team name for display
+                team = next((t for t in self.all_teams if str(t["id"]) == team_id), None)
+                if team:
+                    removed.append(team["team_name"])
+        
+        if removed:
+            await interaction.response.edit_message(
+                content=f"✅ Removed from **{self.game}**: {', '.join(removed)}",
+                view=None
+            )
+        else:
+            await interaction.response.edit_message(
+                content="❌ No teams were removed.",
+                view=None
+            )
+
+
+class TeamRemoveSelect(discord.ui.Select):
+    """Multi-select dropdown for choosing teams to remove."""
+    
+    def __init__(self, game: str, teams: list):
+        self.game = game
+        options = [
+            discord.SelectOption(label=team["team_name"], value=str(team["id"]))
+            for team in teams[:25]
+        ]
+        super().__init__(
+            placeholder="Select teams to remove...", 
+            options=options, 
+            min_values=1, 
+            max_values=len(options),
+            row=0
+        )
+    
+    async def callback(self, interaction: discord.Interaction):
+        count = len(self.values)
+        await interaction.response.send_message(
+            f"✅ Selected {count} team(s). Click **Remove Selected** to confirm.",
+            ephemeral=True
+        )
+
+
+class RemovePrevButton(discord.ui.Button):
+    """Previous page for team removal pagination."""
+    
+    def __init__(self, disabled: bool = False):
+        super().__init__(label="◀ Prev", style=discord.ButtonStyle.secondary, row=1, disabled=disabled)
+    
+    async def callback(self, interaction: discord.Interaction):
+        view: TeamRemoveView = self.view
+        new_view = TeamRemoveView(view.game, view.all_teams, view.page - 1)
+        await interaction.response.edit_message(view=new_view)
+
+
+class RemovePageIndicator(discord.ui.Button):
+    """Page indicator for team removal."""
+    
+    def __init__(self, current: int, total: int):
+        super().__init__(label=f"{current}/{total}", style=discord.ButtonStyle.secondary, row=1, disabled=True)
+    
+    async def callback(self, interaction: discord.Interaction):
+        pass
+
+
+class RemoveNextButton(discord.ui.Button):
+    """Next page for team removal pagination."""
+    
+    def __init__(self, disabled: bool = False):
+        super().__init__(label="Next ▶", style=discord.ButtonStyle.secondary, row=1, disabled=disabled)
+    
+    async def callback(self, interaction: discord.Interaction):
+        view: TeamRemoveView = self.view
+        new_view = TeamRemoveView(view.game, view.all_teams, view.page + 1)
+        await interaction.response.edit_message(view=new_view)
+
 class Registration(commands.Cog):
     """Player registration system for teams."""
     
@@ -411,43 +523,32 @@ class Registration(commands.Cog):
             ephemeral=True
         )
     
-    @teams_group.command(name="remove", description="Remove teams (comma-separated for bulk)")
-    @app_commands.describe(game="The game title", team_names="Team name(s) to remove, comma-separated for bulk")
+    @teams_group.command(name="remove", description="Remove teams via selection")
+    @app_commands.describe(game="The game title")
     @app_commands.checks.has_permissions(administrator=True)
     async def teams_remove(
         self, 
         interaction: discord.Interaction, 
-        game: Literal["MLBB", "CODM"],
-        team_names: str
+        game: Literal["MLBB", "CODM"]
     ):
-        """Remove teams and all their registrations (supports bulk removal)."""
-        names = [name.strip() for name in team_names.split(",") if name.strip()]
+        """Remove teams via interactive selection."""
+        teams = await db.fetchall(
+            "SELECT id, team_name FROM teams WHERE game_name = %s ORDER BY team_name",
+            (game,)
+        )
         
-        if not names:
-            await interaction.response.send_message("❌ No valid team names provided.", ephemeral=True)
+        if not teams:
+            await interaction.response.send_message(
+                f"❌ No teams found for **{game}**.",
+                ephemeral=True
+            )
             return
         
-        removed = []
-        not_found = []
-        
-        for name in names:
-            result = await db.execute(
-                "DELETE FROM teams WHERE game_name = %s AND team_name = %s",
-                (game, name)
-            )
-            if result:
-                removed.append(name)
-            else:
-                not_found.append(name)
-        
-        msg_parts = []
-        if removed:
-            msg_parts.append(f"✅ Removed: {', '.join(removed)}")
-        if not_found:
-            msg_parts.append(f"⚠️ Not found: {', '.join(not_found)}")
-        
+        # Show multi-select view
+        view = TeamRemoveView(game, teams)
         await interaction.response.send_message(
-            f"**{game}** Teams:\n" + "\n".join(msg_parts),
+            f"**Remove {game} Teams**\nSelect the teams you want to remove:",
+            view=view,
             ephemeral=True
         )
     
