@@ -411,31 +411,45 @@ class Registration(commands.Cog):
             ephemeral=True
         )
     
-    @teams_group.command(name="remove", description="Remove a team")
-    @app_commands.describe(game="The game title", team_name="The team to remove")
+    @teams_group.command(name="remove", description="Remove teams (comma-separated for bulk)")
+    @app_commands.describe(game="The game title", team_names="Team name(s) to remove, comma-separated for bulk")
     @app_commands.checks.has_permissions(administrator=True)
     async def teams_remove(
         self, 
         interaction: discord.Interaction, 
         game: Literal["MLBB", "CODM"],
-        team_name: str
+        team_names: str
     ):
-        """Remove a team and all its registrations."""
-        result = await db.execute(
-            "DELETE FROM teams WHERE game_name = %s AND team_name = %s",
-            (game, team_name)
-        )
+        """Remove teams and all their registrations (supports bulk removal)."""
+        names = [name.strip() for name in team_names.split(",") if name.strip()]
         
-        if result:
-            await interaction.response.send_message(
-                f"✅ Removed **{team_name}** from {game} (all registrations cleared).",
-                ephemeral=True
+        if not names:
+            await interaction.response.send_message("❌ No valid team names provided.", ephemeral=True)
+            return
+        
+        removed = []
+        not_found = []
+        
+        for name in names:
+            result = await db.execute(
+                "DELETE FROM teams WHERE game_name = %s AND team_name = %s",
+                (game, name)
             )
-        else:
-            await interaction.response.send_message(
-                f"❌ Team **{team_name}** not found in {game}.",
-                ephemeral=True
-            )
+            if result:
+                removed.append(name)
+            else:
+                not_found.append(name)
+        
+        msg_parts = []
+        if removed:
+            msg_parts.append(f"✅ Removed: {', '.join(removed)}")
+        if not_found:
+            msg_parts.append(f"⚠️ Not found: {', '.join(not_found)}")
+        
+        await interaction.response.send_message(
+            f"**{game}** Teams:\n" + "\n".join(msg_parts),
+            ephemeral=True
+        )
     
     @teams_group.command(name="list", description="List all teams for a game")
     @app_commands.describe(game="The game title")

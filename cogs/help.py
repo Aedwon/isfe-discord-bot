@@ -44,7 +44,7 @@ Use the **Registration Panel** (sent via `/regpanel`):
             reg_admin = """
 `/regpanel` - Send the registration panel
 `/teams add <game> <names>` - Add teams (comma-separated)
-`/teams remove <game> <team>` - Remove a team
+`/teams remove <game> <names>` - Remove teams (comma-separated)
 `/teams list <game>` - List all teams
 `/mention <game> <team>` - Ping all players in a team
 `/roster <game> <team>` - View roster (no ping)
