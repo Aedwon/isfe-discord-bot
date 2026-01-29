@@ -558,7 +558,6 @@ class Registration(commands.Cog):
     
     # =========== AUTOCOMPLETE ===========
     
-    @teams_remove.autocomplete("team_name")
     @mention.autocomplete("team_name")
     @roster.autocomplete("team_name")
     async def team_name_autocomplete(
