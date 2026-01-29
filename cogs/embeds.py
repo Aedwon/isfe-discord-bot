@@ -180,6 +180,10 @@ class Embeds(commands.Cog):
     async def cancel_scheduled_embed_action(self, interaction, identifier):
         await db.execute("DELETE FROM scheduled_embeds WHERE identifier = %s", (identifier,))
         await interaction.response.send_message(f"✅ Cancelled embed {identifier}.", ephemeral=True)
+    
+    async def cancel_scheduled_embed_action_silent(self, identifier):
+        """Cancel without sending a response (for multi-select)."""
+        await db.execute("DELETE FROM scheduled_embeds WHERE identifier = %s", (identifier,))
 
 async def setup(bot):
     await bot.add_cog(Embeds(bot))
