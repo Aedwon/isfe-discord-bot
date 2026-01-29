@@ -326,25 +326,38 @@ class NicknameChoiceView(discord.ui.View):
         self.other_ign = other_ign
         self.team_name = team_name
         
-        # Build nickname options
-        self.options = [
-            (f"{current_game} | {current_ign}", "this"),
-            (f"{other_game} | {other_ign}", "other"),
-            (f"{current_game} | {current_ign} • {other_game}", "combined"),
-            (current_ign, "plain"),
-        ]
+        # Build nickname options - store full nicknames as values
+        self.nickname_options = {
+            "this": f"{current_game} | {current_ign}",
+            "other": f"{other_game} | {other_ign}",
+            "combined": f"{current_game} | {current_ign} • {other_game}",
+            "plain": current_ign,
+        }
         
-        select = NicknameSelect(self.options)
+        select = NicknameSelect(self.nickname_options)
         self.add_item(select)
+
+
+class NicknameSelect(discord.ui.Select):
+    """Dropdown for nickname format selection - applies immediately on select."""
     
-    @discord.ui.button(label="Apply Nickname", style=discord.ButtonStyle.success, row=1)
-    async def apply_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        select = self.children[0]
-        if not hasattr(select, 'selected_nickname') or not select.selected_nickname:
-            await interaction.response.send_message("❌ Please select a nickname format.", ephemeral=True)
-            return
+    def __init__(self, nickname_options: dict):
+        self.nickname_options = nickname_options
         
-        new_nickname = truncate_nickname(select.selected_nickname)
+        select_options = [
+            discord.SelectOption(
+                label=truncate_nickname(nick, 100), 
+                value=key, 
+                description=f"Preview: {truncate_nickname(nick)}"
+            )
+            for key, nick in nickname_options.items()
+        ]
+        super().__init__(placeholder="Choose nickname format...", options=select_options, row=0)
+    
+    async def callback(self, interaction: discord.Interaction):
+        selected_key = self.values[0]
+        selected_nickname = self.nickname_options[selected_key]
+        new_nickname = truncate_nickname(selected_nickname)
         
         try:
             await interaction.user.edit(nick=new_nickname)
@@ -357,35 +370,6 @@ class NicknameChoiceView(discord.ui.View):
                 content="⚠️ Could not change nickname (missing permissions or server owner).",
                 view=None
             )
-
-
-class NicknameSelect(discord.ui.Select):
-    """Dropdown for nickname format selection."""
-    
-    def __init__(self, options: list):
-        self.selected_nickname = None
-        self.selected_pref = None
-        
-        select_options = [
-            discord.SelectOption(label=truncate_nickname(nick, 100), value=pref, description=f"Preview: {truncate_nickname(nick)}")
-            for nick, pref in options
-        ]
-        super().__init__(placeholder="Choose nickname format...", options=select_options, row=0)
-    
-    async def callback(self, interaction: discord.Interaction):
-        self.selected_pref = self.values[0]
-        view: NicknameChoiceView = self.view
-        
-        # Find the selected nickname
-        for nick, pref in view.options:
-            if pref == self.selected_pref:
-                self.selected_nickname = nick
-                break
-        
-        await interaction.response.send_message(
-            f"✅ Selected: **{truncate_nickname(self.selected_nickname)}**\nClick **Apply Nickname** to confirm.",
-            ephemeral=True
-        )
 
 
 class UnverifySelect(discord.ui.Select):
