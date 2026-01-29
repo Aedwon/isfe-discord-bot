@@ -41,7 +41,8 @@ class ISFEBot(commands.Bot):
             "cogs.embeds",    # To be implemented
             "cogs.voice",     # To be implemented
             "cogs.admin_logs", # New Feature 0
-            "cogs.registration" # Player registration system
+            "cogs.registration", # Player registration system
+            "cogs.help"  # Help command
         ]
         
         for ext in initial_extensions:
