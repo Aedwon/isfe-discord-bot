@@ -106,20 +106,35 @@ class RegistrationPanel(discord.ui.View):
 
 
 class TeamSelectView(discord.ui.View):
-    """View with team dropdown and IGN button."""
+    """View with paginated team dropdown and IGN button."""
     
-    def __init__(self, game: str, teams: list):
+    TEAMS_PER_PAGE = 25  # Discord's max options per dropdown
+    
+    def __init__(self, game: str, teams: list, page: int = 0):
         super().__init__(timeout=120)
         self.game = game
-        self.teams = teams
+        self.all_teams = teams
+        self.page = page
+        self.max_pages = (len(teams) - 1) // self.TEAMS_PER_PAGE + 1
         self.selected_team_id = None
         self.selected_team_name = None
         
+        # Get teams for current page
+        start = page * self.TEAMS_PER_PAGE
+        end = start + self.TEAMS_PER_PAGE
+        page_teams = teams[start:end]
+        
         # Add team dropdown
-        self.team_select = TeamSelect(game, teams)
+        self.team_select = TeamSelect(game, page_teams)
         self.add_item(self.team_select)
+        
+        # Add pagination buttons if needed
+        if self.max_pages > 1:
+            self.add_item(PrevPageButton(disabled=(page == 0)))
+            self.add_item(PageIndicator(page + 1, self.max_pages))
+            self.add_item(NextPageButton(disabled=(page >= self.max_pages - 1)))
     
-    @discord.ui.button(label="Enter IGN & Submit", style=discord.ButtonStyle.success, row=1)
+    @discord.ui.button(label="Enter IGN & Submit", style=discord.ButtonStyle.success, row=2)
     async def submit_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         if not self.team_select.selected_team_id:
             await interaction.response.send_message(
@@ -137,8 +152,48 @@ class TeamSelectView(discord.ui.View):
         await interaction.response.send_modal(modal)
 
 
+class PrevPageButton(discord.ui.Button):
+    """Previous page button for team pagination."""
+    
+    def __init__(self, disabled: bool = False):
+        super().__init__(label="◀ Prev", style=discord.ButtonStyle.secondary, row=1, disabled=disabled)
+    
+    async def callback(self, interaction: discord.Interaction):
+        view: TeamSelectView = self.view
+        new_view = TeamSelectView(view.game, view.all_teams, view.page - 1)
+        await interaction.response.edit_message(
+            content=f"**{view.game}** - Select your team (Page {view.page}/{view.max_pages}):",
+            view=new_view
+        )
+
+
+class PageIndicator(discord.ui.Button):
+    """Non-interactive page indicator."""
+    
+    def __init__(self, current: int, total: int):
+        super().__init__(label=f"{current}/{total}", style=discord.ButtonStyle.secondary, row=1, disabled=True)
+    
+    async def callback(self, interaction: discord.Interaction):
+        pass
+
+
+class NextPageButton(discord.ui.Button):
+    """Next page button for team pagination."""
+    
+    def __init__(self, disabled: bool = False):
+        super().__init__(label="Next ▶", style=discord.ButtonStyle.secondary, row=1, disabled=disabled)
+    
+    async def callback(self, interaction: discord.Interaction):
+        view: TeamSelectView = self.view
+        new_view = TeamSelectView(view.game, view.all_teams, view.page + 1)
+        await interaction.response.edit_message(
+            content=f"**{view.game}** - Select your team (Page {view.page + 2}/{view.max_pages}):",
+            view=new_view
+        )
+
+
 class TeamSelect(discord.ui.Select):
-    """Dropdown to select a team."""
+    """Dropdown to select a team from current page."""
     
     def __init__(self, game: str, teams: list):
         self.game = game
@@ -149,7 +204,7 @@ class TeamSelect(discord.ui.Select):
             discord.SelectOption(label=team["team_name"], value=str(team["id"]))
             for team in teams[:25]
         ]
-        super().__init__(placeholder="Select your team...", options=options)
+        super().__init__(placeholder="Select your team...", options=options, row=0)
     
     async def callback(self, interaction: discord.Interaction):
         self.selected_team_id = int(self.values[0])
