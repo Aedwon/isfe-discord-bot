@@ -76,6 +76,7 @@ CREATE TABLE IF NOT EXISTS player_registrations (
     discord_id BIGINT NOT NULL,
     team_id INT NOT NULL,
     ign VARCHAR(50) NULL,
+    nickname_preference ENUM('this', 'other', 'combined', 'plain') DEFAULT 'this',
     registered_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (team_id) REFERENCES teams(id) ON DELETE CASCADE
 );

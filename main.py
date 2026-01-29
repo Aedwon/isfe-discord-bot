@@ -41,7 +41,7 @@ class ISFEBot(commands.Bot):
             "cogs.embeds",    # To be implemented
             "cogs.voice",     # To be implemented
             "cogs.admin_logs", # New Feature 0
-            "cogs.registration", # Player registration system
+            "cogs.verification", # Player verification system
             "cogs.help"  # Help command
         ]
         
