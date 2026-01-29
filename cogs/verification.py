@@ -330,7 +330,7 @@ class NicknameChoiceView(discord.ui.View):
         self.nickname_options = {
             "this": f"{current_game} | {current_ign}",
             "other": f"{other_game} | {other_ign}",
-            "combined": f"{current_game} | {current_ign} • {other_game}",
+            "combined": f"{current_game} | {current_ign} • {other_game} | {other_ign}",
             "plain": current_ign,
         }
         
