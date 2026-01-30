@@ -36,13 +36,14 @@ class ISFEBot(commands.Bot):
         # Load Cogs
         initial_extensions = [
             "cogs.tickets",
-            "cogs.roles",     # To be implemented
-            "cogs.threads",   # To be implemented
-            "cogs.embeds",    # To be implemented
-            "cogs.voice",     # To be implemented
-            "cogs.admin_logs", # New Feature 0
-            "cogs.verification", # Player verification system
-            "cogs.help"  # Help command
+            "cogs.roles",
+            "cogs.threads",
+            "cogs.embeds",
+            "cogs.voice",
+            "cogs.admin_logs",
+            "cogs.verification",
+            "cogs.challonge",  # Challonge bracket integration
+            "cogs.help"
         ]
         
         for ext in initial_extensions:
