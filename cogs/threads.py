@@ -117,6 +117,91 @@ class Threads(commands.Cog):
                     embed.set_footer(text=f"Created by {interaction.user.display_name}")
                 await interaction.channel.send(embed=embed)
 
+    @app_commands.command(name="deletethreads", description="Delete threads matching a prefix")
+    @app_commands.describe(
+        prefix="Thread name prefix to match (e.g., 'Match' deletes Match 1, Match 2...)",
+        channel="The channel where threads are located"
+    )
+    @app_commands.checks.has_permissions(administrator=True)
+    async def delete_threads(self, interaction: discord.Interaction, prefix: str, channel: discord.TextChannel):
+        await interaction.response.defer(ephemeral=True)
+        
+        # Find all threads in the channel that start with the prefix
+        matching_threads = []
+        
+        # Get active threads
+        for thread in channel.threads:
+            if thread.name.startswith(prefix):
+                matching_threads.append(thread)
+        
+        # Also check archived threads
+        try:
+            async for thread in channel.archived_threads(limit=100):
+                if thread.name.startswith(prefix):
+                    matching_threads.append(thread)
+        except discord.Forbidden:
+            pass  # May not have permission to view archived threads
+        
+        if not matching_threads:
+            await interaction.followup.send(
+                f"❌ No threads found starting with **{prefix}** in {channel.mention}.",
+                ephemeral=True
+            )
+            return
+        
+        # Show confirmation
+        thread_names = [f"• {t.name}" for t in matching_threads[:20]]
+        if len(matching_threads) > 20:
+            thread_names.append(f"... and {len(matching_threads) - 20} more")
+        
+        view = DeleteThreadsConfirmView(matching_threads, prefix)
+        await interaction.followup.send(
+            f"⚠️ **Delete {len(matching_threads)} threads?**\n\n"
+            f"Threads matching `{prefix}*` in {channel.mention}:\n" +
+            "\n".join(thread_names),
+            view=view,
+            ephemeral=True
+        )
+
+
+class DeleteThreadsConfirmView(discord.ui.View):
+    """Confirmation view for deleting threads."""
+    
+    def __init__(self, threads: list, prefix: str):
+        super().__init__(timeout=60)
+        self.threads = threads
+        self.prefix = prefix
+    
+    @discord.ui.button(label="Yes, Delete All", style=discord.ButtonStyle.danger)
+    async def confirm_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.edit_message(
+            content=f"⏳ Deleting {len(self.threads)} threads...",
+            view=None
+        )
+        
+        deleted = 0
+        errors = 0
+        
+        for i, thread in enumerate(self.threads):
+            if i > 0 and i % 5 == 0:
+                await asyncio.sleep(1)  # Rate limit protection
+            
+            try:
+                await thread.delete()
+                deleted += 1
+            except Exception as e:
+                logging.error(f"Failed to delete thread {thread.name}: {e}")
+                errors += 1
+        
+        await interaction.edit_original_response(
+            content=f"✅ Deleted **{deleted}** threads matching `{self.prefix}*`.\n"
+                    f"{f'❌ Failed: {errors}' if errors else ''}"
+        )
+    
+    @discord.ui.button(label="Cancel", style=discord.ButtonStyle.secondary)
+    async def cancel_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.edit_message(content="❌ Cancelled.", view=None)
+
 
 async def setup(bot):
     await bot.add_cog(Threads(bot))
