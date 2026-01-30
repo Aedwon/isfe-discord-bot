@@ -2,7 +2,7 @@ import discord
 from discord.ext import commands
 from discord import app_commands
 from database.db import db
-from typing import Literal
+from typing import Literal, Optional
 
 # Game role IDs
 GAME_ROLES = {
