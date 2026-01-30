@@ -496,6 +496,28 @@ class RemoveNextButton(discord.ui.Button):
         await interaction.response.edit_message(view=new_view)
 
 
+class ClearTeamsConfirmView(discord.ui.View):
+    """Confirmation view for clearing all teams."""
+    
+    def __init__(self, game: str, count: int):
+        super().__init__(timeout=30)
+        self.game = game
+        self.count = count
+    
+    @discord.ui.button(label="Yes, Delete All", style=discord.ButtonStyle.danger)
+    async def confirm_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        # Delete all teams for this game (cascades to registrations)
+        await db.execute("DELETE FROM teams WHERE game_name = %s", (self.game,))
+        await interaction.response.edit_message(
+            content=f"✅ Deleted **{self.count} teams** for **{self.game}**.",
+            view=None
+        )
+    
+    @discord.ui.button(label="Cancel", style=discord.ButtonStyle.secondary)
+    async def cancel_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.edit_message(content="❌ Cancelled.", view=None)
+
+
 class Verification(commands.Cog):
     """Player verification system."""
     
@@ -582,7 +604,7 @@ class Verification(commands.Cog):
         teams = await db.fetchall(
             """SELECT t.team_name, COUNT(pr.id) as cnt FROM teams t
                LEFT JOIN player_registrations pr ON t.id = pr.team_id
-               WHERE t.game_name = %s GROUP BY t.id ORDER BY t.team_name""",
+               WHERE t.game_name = %s GROUP BY t.id ORDER BY LOWER(t.team_name)""",
             (game,)
         )
         if not teams:
@@ -592,6 +614,26 @@ class Verification(commands.Cog):
         lines = [f"• {t['team_name']} ({t['cnt']} players)" for t in teams]
         embed = discord.Embed(title=f"{game} Teams", description="\n".join(lines), color=discord.Color.blue())
         await interaction.response.send_message(embed=embed, ephemeral=True)
+    
+    @teams_group.command(name="clear", description="Delete ALL teams for a game")
+    @app_commands.describe(game="The game to clear all teams from")
+    @app_commands.checks.has_permissions(administrator=True)
+    async def teams_clear(self, interaction: discord.Interaction, game: Literal["MLBB", "CODM"]):
+        # Count teams first
+        result = await db.fetchrow("SELECT COUNT(*) as cnt FROM teams WHERE game_name = %s", (game,))
+        count = result['cnt'] if result else 0
+        
+        if count == 0:
+            await interaction.response.send_message(f"❌ No teams to delete for **{game}**.", ephemeral=True)
+            return
+        
+        # Show confirmation
+        view = ClearTeamsConfirmView(game, count)
+        await interaction.response.send_message(
+            f"⚠️ **Are you sure?**\n\nThis will delete **{count} teams** for **{game}** and remove all player registrations for those teams.\n\nThis action cannot be undone!",
+            view=view,
+            ephemeral=True
+        )
     
     # ============ LEAGUE OPS ============
     
