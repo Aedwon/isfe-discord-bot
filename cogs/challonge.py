@@ -318,7 +318,8 @@ class Challonge(commands.Cog):
             if target_match.get("state") == "complete":
                 await interaction.followup.send(
                     f"❌ Match #{match_number} already has a result.\n"
-                    f"Score: {target_match.get('scores_csv', 'N/A')}"
+                    f"Score: {target_match.get('scores_csv', 'N/A')}\n\n"
+                    f"Use `/challonge_reopen {match_number}` to fix a mistake."
                 )
                 return
             
@@ -372,6 +373,23 @@ class Challonge(commands.Cog):
             await interaction.followup.send(f"❌ Challonge API error: {e.message}")
         except Exception as e:
             await interaction.followup.send(f"❌ Error reporting result: {e}")
+    
+    @challonge_report.autocomplete("winner")
+    async def winner_autocomplete(self, interaction: discord.Interaction, current: str):
+        """Autocomplete for winner field using cached participants."""
+        bracket = get_channel_bracket(interaction.channel_id)
+        if not bracket:
+            return []
+        
+        cache = bracket.get("participants_cache", {})
+        current_lower = current.lower()
+        
+        matches = [
+            app_commands.Choice(name=name[:100], value=name[:100])
+            for pid, name in cache.items()
+            if current_lower in name.lower()
+        ]
+        return matches[:25]
     
     @app_commands.command(name="challonge_bracket", description="Show info about the linked Challonge bracket")
     async def challonge_bracket(self, interaction: discord.Interaction):
@@ -442,6 +460,106 @@ class Challonge(commands.Cog):
             await interaction.followup.send(embed=embed)
         except Exception as e:
             await interaction.followup.send(f"❌ Error fetching bracket info: {e}")
+    
+    @app_commands.command(name="challonge_reopen", description="Reopen a completed match to fix a mistake")
+    @app_commands.describe(match_number="Match number to reopen")
+    async def challonge_reopen(self, interaction: discord.Interaction, match_number: int):
+        """Reopen a completed match to allow re-reporting."""
+        
+        if not has_permission(interaction.user):
+            await interaction.response.send_message(
+                "❌ You need the Marshal role or Admin permissions to reopen matches.",
+                ephemeral=True
+            )
+            return
+        
+        bracket = get_channel_bracket(interaction.channel_id)
+        if not bracket:
+            await interaction.response.send_message(
+                "❌ No bracket linked to this channel. Use `/challonge_link` first.",
+                ephemeral=True
+            )
+            return
+        
+        await interaction.response.defer(thinking=True)
+        
+        try:
+            client = self._get_client()
+            slug = bracket["tournament_slug"]
+            
+            matches = await client.get_matches(slug, state="all")
+            
+            target_match = None
+            for m in matches:
+                if (m.get("suggested_play_order") or m.get("id")) == match_number:
+                    target_match = m
+                    break
+            
+            if not target_match:
+                await interaction.followup.send(f"❌ Match #{match_number} not found in the bracket.")
+                return
+            
+            if target_match.get("state") != "complete":
+                await interaction.followup.send(f"❌ Match #{match_number} is not completed yet.")
+                return
+            
+            await client.reopen_match(slug, target_match["id"])
+            
+            participants = await client.get_participants(slug)
+            participant_cache = build_participant_cache(participants)
+            p1_name = participant_cache.get(target_match.get("player1_id"), "Unknown")
+            p2_name = participant_cache.get(target_match.get("player2_id"), "Unknown")
+            
+            embed = discord.Embed(
+                title="🔄 Match Reopened",
+                description=f"Match #{match_number} has been reopened.\n\n"
+                            f"**{p1_name}** vs **{p2_name}**\n\n"
+                            f"Use `/challonge_report` to enter the correct result.",
+                color=discord.Color.orange(),
+                timestamp=datetime.now(timezone.utc)
+            )
+            embed.set_footer(text=f"Reopened by {interaction.user.display_name}")
+            
+            await interaction.followup.send(embed=embed)
+            
+        except ChallongeAPIError as e:
+            await interaction.followup.send(f"❌ Challonge API error: {e.message}")
+        except Exception as e:
+            await interaction.followup.send(f"❌ Error reopening match: {e}")
+    
+    @app_commands.command(name="challonge_refresh", description="Refresh participant cache from Challonge")
+    async def challonge_refresh(self, interaction: discord.Interaction):
+        """Refresh the cached participant list."""
+        
+        bracket = get_channel_bracket(interaction.channel_id)
+        if not bracket:
+            await interaction.response.send_message(
+                "❌ No bracket linked to this channel. Use `/challonge_link` first.",
+                ephemeral=True
+            )
+            return
+        
+        await interaction.response.defer(thinking=True)
+        
+        try:
+            client = self._get_client()
+            slug = bracket["tournament_slug"]
+            
+            participants = await client.get_participants(slug)
+            participant_cache = build_participant_cache(participants)
+            
+            bracket["participants_cache"] = {str(k): v for k, v in participant_cache.items()}
+            set_channel_bracket(interaction.channel_id, bracket)
+            
+            await interaction.followup.send(
+                f"✅ Refreshed participant cache for **{bracket['tournament_name']}**.\n"
+                f"Loaded **{len(participants)}** participants."
+            )
+            
+        except ChallongeAPIError as e:
+            await interaction.followup.send(f"❌ Challonge API error: {e.message}")
+        except Exception as e:
+            await interaction.followup.send(f"❌ Error refreshing: {e}")
 
 
 async def setup(bot: commands.Bot):

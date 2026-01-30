@@ -1,11 +1,5 @@
-"""
-Challonge API Client
-
-Provides async HTTP client for Challonge API v1.
-API Docs: https://api.challonge.com/v1
-"""
-
 import aiohttp
+import asyncio
 import os
 import re
 from typing import Optional, Tuple, List, Dict, Any
@@ -23,31 +17,50 @@ class ChallongeClient:
     """Async client for Challonge API v1."""
     
     BASE_URL = "https://api.challonge.com/v1"
+    MAX_RETRIES = 3
     
     def __init__(self, api_key: str = None):
         self.api_key = api_key or os.getenv("CHALLONGE_API_KEY")
         if not self.api_key:
             raise ValueError("CHALLONGE_API_KEY not found in environment")
     
-    async def _request(self, method: str, endpoint: str, **kwargs) -> Any:
-        """Make authenticated request to Challonge API."""
+    async def _request(self, method: str, endpoint: str, retries: int = 0, **kwargs) -> Any:
+        """Make authenticated request to Challonge API with retry logic."""
         url = f"{self.BASE_URL}/{endpoint}.json"
         
         # Add API key to params
         params = kwargs.pop("params", {})
         params["api_key"] = self.api_key
         
-        async with aiohttp.ClientSession() as session:
-            async with session.request(method, url, params=params, **kwargs) as resp:
-                if resp.status == 401:
-                    raise ChallongeAPIError("Invalid API key", 401)
-                elif resp.status == 404:
-                    raise ChallongeAPIError("Tournament not found", 404)
-                elif resp.status >= 400:
-                    text = await resp.text()
-                    raise ChallongeAPIError(f"API error: {text}", resp.status)
-                
-                return await resp.json()
+        try:
+            async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=30)) as session:
+                async with session.request(method, url, params=params, **kwargs) as resp:
+                    if resp.status == 401:
+                        raise ChallongeAPIError("Invalid API key", 401)
+                    elif resp.status == 404:
+                        raise ChallongeAPIError("Tournament not found", 404)
+                    elif resp.status == 422:
+                        text = await resp.text()
+                        raise ChallongeAPIError(f"Validation error: {text}", 422)
+                    elif resp.status >= 500 and retries < self.MAX_RETRIES:
+                        # Server error - retry with backoff
+                        await asyncio.sleep(2 ** retries)
+                        return await self._request(method, endpoint, retries + 1, params=params, **kwargs)
+                    elif resp.status >= 400:
+                        text = await resp.text()
+                        raise ChallongeAPIError(f"API error: {text}", resp.status)
+                    
+                    return await resp.json()
+        except asyncio.TimeoutError:
+            if retries < self.MAX_RETRIES:
+                await asyncio.sleep(2 ** retries)
+                return await self._request(method, endpoint, retries + 1, params=params, **kwargs)
+            raise ChallongeAPIError("Request timed out after retries", 0)
+        except aiohttp.ClientError as e:
+            if retries < self.MAX_RETRIES:
+                await asyncio.sleep(2 ** retries)
+                return await self._request(method, endpoint, retries + 1, params=params, **kwargs)
+            raise ChallongeAPIError(f"Network error: {e}", 0)
     
     async def get_tournament(self, slug: str) -> dict:
         """Get tournament details."""
@@ -97,6 +110,16 @@ class ChallongeClient:
             }
         }
         result = await self._request("PUT", f"tournaments/{slug}/matches/{match_id}", json=data)
+        return result.get("match", {})
+    
+    async def reopen_match(self, slug: str, match_id: int) -> dict:
+        """Reopen a completed match to allow re-reporting.
+        
+        Args:
+            slug: Tournament slug
+            match_id: Match ID
+        """
+        result = await self._request("POST", f"tournaments/{slug}/matches/{match_id}/reopen")
         return result.get("match", {})
 
 
