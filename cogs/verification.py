@@ -635,6 +635,77 @@ class Verification(commands.Cog):
             ephemeral=True
         )
     
+    @app_commands.command(name="entries", description="Show all teams with verified players")
+    @app_commands.describe(game="Filter by game (optional)")
+    @app_commands.checks.has_permissions(administrator=True)
+    async def entries(self, interaction: discord.Interaction, game: Optional[Literal["MLBB", "CODM"]] = None):
+        """Show all teams that have at least one verified player."""
+        await interaction.response.defer(ephemeral=True)
+        
+        if game:
+            query = """
+                SELECT t.game_name, t.team_name, COUNT(pr.id) as player_count
+                FROM teams t
+                INNER JOIN player_registrations pr ON t.id = pr.team_id
+                WHERE t.game_name = %s
+                GROUP BY t.id
+                ORDER BY t.game_name, LOWER(t.team_name)
+            """
+            teams = await db.fetchall(query, (game,))
+        else:
+            query = """
+                SELECT t.game_name, t.team_name, COUNT(pr.id) as player_count
+                FROM teams t
+                INNER JOIN player_registrations pr ON t.id = pr.team_id
+                GROUP BY t.id
+                ORDER BY t.game_name, LOWER(t.team_name)
+            """
+            teams = await db.fetchall(query)
+        
+        if not teams:
+            filter_text = f" for **{game}**" if game else ""
+            await interaction.followup.send(f"❌ No teams with verified players{filter_text}.", ephemeral=True)
+            return
+        
+        # Group by game
+        mlbb_teams = [t for t in teams if t['game_name'] == 'MLBB']
+        codm_teams = [t for t in teams if t['game_name'] == 'CODM']
+        
+        embeds = []
+        
+        if mlbb_teams and (game is None or game == "MLBB"):
+            mlbb_lines = [f"• **{t['team_name']}** ({t['player_count']} player{'s' if t['player_count'] != 1 else ''})" for t in mlbb_teams]
+            
+            # Split into chunks if too long
+            for i in range(0, len(mlbb_lines), 20):
+                chunk = mlbb_lines[i:i+20]
+                embed = discord.Embed(
+                    title=f"📋 MLBB Entries ({len(mlbb_teams)} teams)" if i == 0 else "📋 MLBB Entries (cont.)",
+                    description="\n".join(chunk),
+                    color=discord.Color.blue()
+                )
+                embeds.append(embed)
+        
+        if codm_teams and (game is None or game == "CODM"):
+            codm_lines = [f"• **{t['team_name']}** ({t['player_count']} player{'s' if t['player_count'] != 1 else ''})" for t in codm_teams]
+            
+            for i in range(0, len(codm_lines), 20):
+                chunk = codm_lines[i:i+20]
+                embed = discord.Embed(
+                    title=f"📋 CODM Entries ({len(codm_teams)} teams)" if i == 0 else "📋 CODM Entries (cont.)",
+                    description="\n".join(chunk),
+                    color=discord.Color.green()
+                )
+                embeds.append(embed)
+        
+        # Add summary
+        total_teams = len(teams)
+        total_players = sum(t['player_count'] for t in teams)
+        summary = f"**Total:** {total_teams} teams, {total_players} verified players"
+        embeds[-1].set_footer(text=summary)
+        
+        await interaction.followup.send(embeds=embeds[:10], ephemeral=True)  # Discord limit 10 embeds
+    
     # ============ LEAGUE OPS ============
     
     @app_commands.command(name="mention", description="Mention all players in a team")
