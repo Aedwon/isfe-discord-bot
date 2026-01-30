@@ -752,8 +752,8 @@ class Verification(commands.Cog):
         await interaction.response.send_message(embed=embed, ephemeral=True)
     
     @mention.autocomplete("team_name")
-    @roster.autocomplete("team_name")
-    async def team_autocomplete(self, interaction: discord.Interaction, current: str):
+    async def mention_team_autocomplete(self, interaction: discord.Interaction, current: str):
+        """Autocomplete for mention command."""
         game = None
         for opt in interaction.data.get("options", []):
             if opt["name"] == "game":
@@ -762,8 +762,36 @@ class Verification(commands.Cog):
         if not game:
             return []
         
-        teams = await db.fetchall("SELECT team_name FROM teams WHERE game_name = %s ORDER BY team_name", (game,))
-        return [app_commands.Choice(name=t["team_name"], value=t["team_name"]) for t in teams if current.lower() in t["team_name"].lower()][:25]
+        teams = await db.fetchall(
+            "SELECT team_name FROM teams WHERE game_name = %s ORDER BY LOWER(team_name)", 
+            (game,)
+        )
+        return [
+            app_commands.Choice(name=t["team_name"][:100], value=t["team_name"][:100]) 
+            for t in teams 
+            if current.lower() in t["team_name"].lower()
+        ][:25]
+    
+    @roster.autocomplete("team_name")
+    async def roster_team_autocomplete(self, interaction: discord.Interaction, current: str):
+        """Autocomplete for roster command."""
+        game = None
+        for opt in interaction.data.get("options", []):
+            if opt["name"] == "game":
+                game = opt["value"]
+                break
+        if not game:
+            return []
+        
+        teams = await db.fetchall(
+            "SELECT team_name FROM teams WHERE game_name = %s ORDER BY LOWER(team_name)", 
+            (game,)
+        )
+        return [
+            app_commands.Choice(name=t["team_name"][:100], value=t["team_name"][:100]) 
+            for t in teams 
+            if current.lower() in t["team_name"].lower()
+        ][:25]
 
 
 async def setup(bot: commands.Bot):
