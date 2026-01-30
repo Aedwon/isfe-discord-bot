@@ -65,7 +65,7 @@ class VerificationPanel(discord.ui.View):
     async def start_verification(self, interaction: discord.Interaction, game: str):
         """Show team selection for the specified game."""
         teams = await db.fetchall(
-            "SELECT id, team_name FROM teams WHERE game_name = %s ORDER BY team_name",
+            "SELECT id, team_name FROM teams WHERE game_name = %s ORDER BY LOWER(team_name)",
             (game,)
         )
         
@@ -567,7 +567,7 @@ class Verification(commands.Cog):
     @app_commands.describe(game="The game")
     @app_commands.checks.has_permissions(administrator=True)
     async def teams_remove(self, interaction: discord.Interaction, game: Literal["MLBB", "CODM"]):
-        teams = await db.fetchall("SELECT id, team_name FROM teams WHERE game_name = %s ORDER BY team_name", (game,))
+        teams = await db.fetchall("SELECT id, team_name FROM teams WHERE game_name = %s ORDER BY LOWER(team_name)", (game,))
         if not teams:
             await interaction.response.send_message(f"❌ No teams for **{game}**.", ephemeral=True)
             return
