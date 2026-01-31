@@ -22,7 +22,7 @@ class ISFEBot(commands.Bot):
         intents.voice_states = True
         
         super().__init__(
-            command_prefix="^",
+            command_prefix=["!", "^"],
             intents=intents,
             help_command=None,
             application_id=os.getenv("APP_ID")
@@ -42,7 +42,8 @@ class ISFEBot(commands.Bot):
             "cogs.voice",
             "cogs.admin_logs",
             "cogs.verification",
-            "cogs.challonge",  # Challonge bracket integration
+            "cogs.challonge",
+            "cogs.utils",  # Simple utility commands
             "cogs.help"
         ]
         
